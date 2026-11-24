@@ -184,10 +184,11 @@
   /* ---------- ハンバーガーメニュー ---------- */
   .menu{
     position:fixed; top:0; right:0; height:100dvh; width:min(300px,84vw); background:var(--surface);
-    transform:translateX(105%); visibility:hidden; transition:transform .28s ease, visibility 0s linear .28s; z-index:50; padding:22px 20px;
-    display:flex; flex-direction:column; gap:4px;
+    transform:translateX(105%); display:none; transition:transform .28s ease; z-index:50; padding:22px 20px;
+    flex-direction:column; gap:4px;
   }
-  .menu.on{ transform:translateX(0); visibility:visible; transition:transform .28s ease; }
+  .menu.prep{ display:flex; }
+  .menu.on{ transform:translateX(0); }
   .menu h3{ margin:2px 0 14px; font-size:.85rem; color:var(--muted); letter-spacing:.18em; font-weight:700; }
   .menu button{
     background:none; border:none; color:var(--text); text-align:left; font-size:1.08rem;
@@ -208,6 +209,7 @@
   .card p{ margin:0; color:var(--muted); font-size:.9rem; line-height:1.65; }
   .card .meta{ margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .tag{ background:var(--surface-3); color:var(--gold-bright); font-size:.76rem; border-radius:999px; padding:4px 10px; }
+  .tag-private{ background:var(--bg); color:var(--muted); font-size:.76rem; border-radius:999px; padding:4px 10px; }
   .card .by{ color:var(--muted-2); font-size:.78rem; }
   .card img.card-img{ width:100%; border-radius:12px; margin-bottom:12px; display:block; }
 
@@ -233,7 +235,7 @@
     box-shadow:0 10px 30px rgba(0,0,0,.5); max-width:88vw; text-align:center;
   }
   .toast.on{ opacity:1; transform:translate(-50%,0); }
-  form.tool-form .field input, form.tool-form .field textarea{
+  form.tool-form .field input, form.tool-form .field textarea, form.tool-form .field select{
     width:100%; background:var(--bg); border:none; border-radius:12px; color:var(--text); padding:12px 14px; font-size:1rem; outline:none;
   }
   form.tool-form .field textarea{ min-height:150px; resize:vertical; line-height:1.6; }
@@ -464,12 +466,12 @@
     );
     prompts.push({
       id:++itemSeq, kind:"prompt", title:"お店の紹介文を作る", desc:"店の特徴から、ホームページ用の紹介文を作る指示文です。", cat:"集客",
-      body:"あなたは小さなお店の広報担当です。\n次の情報をもとに、初めてのお客様に伝わる紹介文を300字で書いてください。\n\n・店名：\n・場所：\n・自慢の点：\n・こんな人に来てほしい：", by:"講師", url:""
+      body:"あなたは小さなお店の広報担当です。\n次の情報をもとに、初めてのお客様に伝わる紹介文を300字で書いてください。\n\n・店名：\n・場所：\n・自慢の点：\n・こんな人に来てほしい：", by:"講師", url:"", shared:true
     });
     tools.push({
       id:++itemSeq, kind:"tool", title:"税込価格かんたん計算", desc:"税抜き金額から税込（10%・8%）を出す小さなコードです。本文をコピーして、ファイル名を「計算.html」にして保存するとブラウザで動きます。", cat:"経理",
       body:"<!DOCTYPE html>\n<html lang=\"ja\">\n<head><meta charset=\"utf-8\"><title>税込価格計算<\/title><\/head>\n<body>\n<h3>税込価格かんたん計算<\/h3>\n<input id=\"price\" type=\"number\" placeholder=\"税抜き金額\">\n<button onclick=\"calc()\">計算<\/button>\n<p id=\"out\"><\/p>\n<script>\nfunction calc(){\n  const p = Number(document.getElementById('price').value);\n  const t10 = Math.floor(p * 1.10);\n  const t8 = Math.floor(p * 1.08);\n  document.getElementById('out').textContent =\n    '10%税込：' + t10.toLocaleString() + '円 ／ 8%税込：' + t8.toLocaleString() + '円';\n}\n<\/script>\n<\/body>\n<\/html>",
-      by:"講師", url:""
+      by:"講師", url:"", shared:true
     });
   }
   seed();
@@ -547,8 +549,22 @@
     });
     closeMenu();
   }
-  function openMenu(){ $("mainMenu").classList.add("on"); $("menuVeil").classList.add("on"); }
-  function closeMenu(){ $("mainMenu").classList.remove("on"); $("menuVeil").classList.remove("on"); }
+  var menuTimer = null;
+  function openMenu(){
+    var m = $("mainMenu");
+    clearTimeout(menuTimer);
+    m.classList.add("prep");
+    void m.offsetWidth; /* 表示を確定させてからスライドさせる */
+    m.classList.add("on");
+    $("menuVeil").classList.add("on");
+  }
+  function closeMenu(){
+    var m = $("mainMenu");
+    m.classList.remove("on");
+    $("menuVeil").classList.remove("on");
+    clearTimeout(menuTimer);
+    menuTimer = setTimeout(function(){ m.classList.remove("prep"); }, 300);
+  }
   $("menuBtn").addEventListener("click", openMenu);
   $("menuClose").addEventListener("click", closeMenu);
   $("menuVeil").addEventListener("click", closeMenu);
@@ -721,18 +737,24 @@
     var wrap = $(kind + "List");
     var arr = listOf(kind);
     wrap.innerHTML = "";
-    if(!arr.length){ wrap.innerHTML = '<div class="card"><p>まだ登録がありません。「＋ 登録」から追加できます。</p></div>'; return; }
+    var shown = 0;
     arr.forEach(function(it){
+      // 未公開のものは、作った人と管理人にしか見えない（公開前に作ったものは共有されない）
+      if(!it.shared && !me.admin && it.by !== me.nick) return;
+      shown++;
       var d = document.createElement("div");
       d.className = "card";
       d.innerHTML =
         (it.img ? '<img class="card-img" src="' + it.img + '" alt="" />' : "") +
         "<h3>" + esc(it.title) + "</h3>" +
         (it.desc ? "<p>" + esc(it.desc) + "</p>" : "") +
-        '<div class="meta">' + (it.cat ? '<span class="tag">' + esc(it.cat) + '</span>' : "") + '<span class="by">' + esc(it.by) + " さん</span></div>";
+        '<div class="meta">' + (it.cat ? '<span class="tag">' + esc(it.cat) + '</span>' : "") +
+        (it.shared ? '<span class="tag">公開中</span>' : '<span class="tag-private">未公開</span>') +
+        '<span class="by">' + esc(it.by) + " さん</span></div>";
       d.addEventListener("click", function(){ showDetail(kind, it.id); });
       wrap.appendChild(d);
     });
+    if(!shown){ wrap.innerHTML = '<div class="card"><p>まだ表示できる登録がありません。「＋ 登録」から追加できます。登録したものは最初は未公開で、作った人と管理人だけに見えます。</p></div>'; return; }
   }
   function findItem(kind, id){
     var arr = listOf(kind);
@@ -752,11 +774,13 @@
         "<h2>" + esc(it.title) + "</h2>" +
         (it.desc ? '<p class="desc">' + esc(it.desc) + "</p>" : "") +
         (it.img ? '<img src="' + it.img + '" alt="" />' : "") +
-        '<div class="meta" style="margin-bottom:12px;display:flex;gap:8px;align-items:center">' + (it.cat ? '<span class="tag">' + esc(it.cat) + "</span>" : "") + '<span class="by" style="color:var(--muted-2);font-size:.8rem">' + esc(it.by) + " さん</span></div>" +
+        '<div class="meta" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + (it.cat ? '<span class="tag">' + esc(it.cat) + "</span>" : "") + (it.shared ? '<span class="tag">公開中</span>' : '<span class="tag-private">未公開</span>') + '<span class="by" style="color:var(--muted-2);font-size:.8rem">' + esc(it.by) + " さん</span></div>" +
+        (it.shared ? "" : '<p style="color:var(--muted);font-size:.88rem;margin:0 0 14px;line-height:1.7">これは未公開です。作った人と管理人だけが見られます。相手に見せたいときは「相手に開示する」を押してください。</p>') +
         '<pre class="body">' + esc(it.body) + "</pre>" +
         '<div class="actions">' +
           '<button class="btn-gold" style="width:auto;padding:12px 26px" data-copy="' + kind + ":" + it.id + '">本文をコピー</button>' +
           (it.url ? '<button class="btn-sub" data-openurl="' + esc(it.url) + '">関連サイト</button>' : "") +
+          (canEdit ? '<button class="btn-sub" data-share="' + kind + ":" + it.id + '">' + (it.shared ? "開示を取り消す" : "相手に開示する") + "</button>" : "") +
           (canEdit ? '<button class="btn-sub" data-edit="' + kind + ":" + it.id + '">編集</button><button class="btn-danger" data-delitem="' + kind + ":" + it.id + '">削除</button>' : "") +
         "</div>" +
         '<p style="color:var(--muted-2);font-size:.82rem;margin-top:14px;line-height:1.7">コピーは本文だけを取ります（改行・箇条書きそのまま）。</p>' +
@@ -782,6 +806,10 @@
         '<div class="field"><label>分類（任意）</label><input name="cat" value="' + esc(it ? it.cat : "") + '" placeholder="' + (isTool ? "例：経理" : "例：集客") + '" /></div>' +
         '<div class="field"><label>本文' + (isTool ? "（本文型では必須）" : "（必須）") + '</label><textarea name="body" placeholder="コピーして使うテンプレート・指示文・チェックリスト・コードなどをそのまま書いてください">' + esc(it ? it.body : "") + "</textarea></div>" +
         '<div class="field"><label>関連URL（任意）</label><input name="url" value="' + esc(it ? it.url : "") + '" placeholder="https://…" /></div>' +
+        '<div class="field"><label>開示の設定</label><select name="shared">' +
+          '<option value="0"' + (it && it.shared ? "" : " selected") + '>未公開（作った人と管理人だけが見られます）</option>' +
+          '<option value="1"' + (it && it.shared ? " selected" : "") + '>公開（部屋のみんなに開示します）</option>' +
+        "</select></div>" +
         '<button class="btn-gold" type="submit">' + (it ? "保存する" : "登録する") + "</button>" +
       "</form>";
   }
@@ -801,6 +829,17 @@
       return;
     }
     var ou = t.closest("[data-openurl]"); if(ou){ window.open(ou.getAttribute("data-openurl"), "_blank"); return; }
+    var sh = t.closest("[data-share]");
+    if(sh){
+      var p4 = sh.getAttribute("data-share").split(":");
+      var it4 = findItem(p4[0], Number(p4[1]));
+      if(it4){
+        it4.shared = !it4.shared;
+        showDetail(p4[0], it4.id);
+        toast(it4.shared ? "開示しました。部屋のみんなに見えるようになりました" : "未公開に戻しました");
+      }
+      return;
+    }
     var ed = t.closest("[data-edit]");
     if(ed){ var p2 = ed.getAttribute("data-edit").split(":"); showForm(p2[0], findItem(p2[0], Number(p2[1]))); return; }
     var di = t.closest("[data-delitem]");
@@ -823,15 +862,16 @@
     var descV = f.elements.namedItem("desc").value.trim();
     var catV = f.elements.namedItem("cat").value.trim();
     var urlV = f.elements.namedItem("url").value.trim();
+    var sharedV = f.elements.namedItem("shared").value === "1";
     if(!title){ toast("名前を入れてください"); return; }
     if(!body.trim()){ toast("本文を入れてください"); return; }
     var editId = f.getAttribute("data-editid");
     if(editId){
       var it = findItem(kind, Number(editId));
-      if(it){ it.title = title; it.desc = descV; it.cat = catV; it.body = body; it.url = urlV; }
+      if(it){ it.title = title; it.desc = descV; it.cat = catV; it.body = body; it.url = urlV; it.shared = sharedV; }
       toast("保存しました");
     } else {
-      listOf(kind).unshift({ id:++itemSeq, kind:kind, title:title, desc:descV, cat:catV, body:body, by:me.nick, url:urlV });
+      listOf(kind).unshift({ id:++itemSeq, kind:kind, title:title, desc:descV, cat:catV, body:body, by:me.nick, url:urlV, shared:sharedV });
       toast("登録しました");
     }
     backToList(kind);
@@ -869,7 +909,8 @@
     html += '<div class="set-block"><h3>使い方</h3>' +
       "<p>・会話の「＋」から、写真を撮る／写真を選ぶ／ファイルを選ぶ（4MBまで）ができます。写真は小さく表示され、タップで拡大します。</p>" +
       "<p>・リアクションは1人につき1つまで。別のものを押すと付け替わり、同じものをもう一度押すと取り消しになります。</p>" +
-      "<p>・プロンプト集とツール倉庫では、本文を開いてコピーして使います。自分の投稿は自分で編集・削除できます。</p></div>";
+      "<p>・プロンプト集とツール倉庫では、本文を開いてコピーして使います。自分の投稿は自分で編集・削除できます。</p>" +
+      "<p>・プロンプト集とツール倉庫に登録したものは、最初は「未公開」で、作った人と管理人だけが見られます。公開する前に作ったものは、他の人には共有されません。相手に見せたいときは、詳細画面の「相手に開示する」を押すか、登録・編集のときに開示の設定を「公開」にしてください。開示はあとから取り消せます。</p></div>";
 
     html += '<div class="set-block"><h3>部屋から出る</h3>' +
       "<p>出ても、台帳の記録と過去の発言は部屋に残ります。再入室は合言葉＋同じニックネームと屋号・名前の照合でできます。</p>" +
@@ -981,7 +1022,7 @@
   window.__promptInstall = function(){
     var p = window.__deferredInstall;
     if(!p) return;
-    p.prompt();
+    p.prompt.call(p);
     p.userChoice.then(function(){ window.__deferredInstall = null; });
   };
   window.addEventListener("appinstalled", function(){
